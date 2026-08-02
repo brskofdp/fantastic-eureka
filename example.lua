@@ -41,7 +41,7 @@ local env = (getgenv or function() return _G end)()
 if env.MemeSense then
     ImGui = env.MemeSense                        -- option C: already loaded
 else
-    local libSource = game:HttpGet("PASTE_URL_HERE")   -- option B: <-- EDIT THIS
+    local libSource = game:HttpGet("https://raw.githubusercontent.com/brskofdp/fantastic-eureka/refs/heads/main/source.lua")   -- option B: <-- EDIT THIS
     ImGui = loadstring(libSource)()
     env.MemeSense = ImGui                        -- cache for later scripts
 end
