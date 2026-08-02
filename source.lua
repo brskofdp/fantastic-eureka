@@ -109,9 +109,9 @@ local SIDEBAR_BTN_Y      = 60           -- first sidebar button Y
 local FONT_SIZE          = 14
 local TITLE_SIZE         = 24
 
---[[====================== 3. SMALL HELPERS ====================================
-   Instance factory, font helper (Gotham = closest free match to Rubik,
-   with SourceSans fallback), math + color utilities.                                 ]]
+--[[====================== 3. SMALL HELPERS ==================================== ]]
+
+local FONT_ASSET = "rbxasset://fonts/families/GothamSSm.json"
 
 local function New(className, props, parent)
     local obj = Instance.new(className)
@@ -123,15 +123,16 @@ local function New(className, props, parent)
 end
 
 local function applyFont(obj, size, bold)
-    -- FontFace is the modern way; fall back to the legacy Font property if
-    -- the executor's client is too old to support it.
     local ok = pcall(function()
-        obj.FontFace = Font.new(Enum.Font[bold and "GothamBold" or "GothamSemibold"])
+        obj.FontFace = Font.new(FONT_ASSET, bold and Enum.FontWeight.Bold or Enum.FontWeight.Regular)
     end)
     if not ok then
-        pcall(function() obj.Font = Enum.Font[bold and "GothamBold" or "GothamSemibold"] end)
+        ok = pcall(function() obj.FontFace = Font.new(FONT_ASSET) end)
     end
-    obj.TextSize = size or FONT_SIZE
+    if not ok then
+        pcall(function() obj.Font = Enum.Font.GothamSemibold end)
+    end
+    pcall(function() obj.TextSize = size or FONT_SIZE end)
 end
 
 local function clamp(v, a, b) return math.max(a, math.min(b, v)) end
@@ -470,8 +471,17 @@ function WidgetHost:AddToggle(text, default, callback, tooltip)
 
     local marks = {}
     local lbl
+    local hovered = false
     local function refresh()
-        boxFrame.BackgroundColor3 = state and ImGui.Theme.Accent or ImGui.Theme.CheckboxEmpty
+        if state then
+            boxFrame.BackgroundColor3 = ImGui.Theme.Accent
+        elseif hovered then
+            boxFrame.BackgroundColor3 = ImGui.Theme.Accent
+            boxFrame.BackgroundTransparency = 0.75
+        else
+            boxFrame.BackgroundColor3 = ImGui.Theme.CheckboxEmpty
+            boxFrame.BackgroundTransparency = 0
+        end
         lbl.TextColor3 = state and ImGui.Theme.Text or ImGui.Theme.TextDisabled
         for _, m in ipairs(marks) do m.Visible = state end
     end
@@ -489,6 +499,8 @@ function WidgetHost:AddToggle(text, default, callback, tooltip)
     }, btn)
     applyFont(lbl, FONT_SIZE)
 
+    btn.MouseEnter:Connect(function() hovered = true refresh() end)
+    btn.MouseLeave:Connect(function() hovered = false refresh() end)
     btn.MouseButton1Click:Connect(function()
         state = not state
         refresh()
@@ -537,6 +549,7 @@ function WidgetHost:AddSlider(text, min, max, default, callback, opts)
     applyFont(valueLbl, FONT_SIZE)
 
     local function fmt(v)
+        if precision == 0 and v == 0 then return "disabled" end
         if precision == 0 then return tostring(round(v)) .. suffix end
         return string.format("%." .. precision .. "f", v) .. suffix
     end
@@ -1334,6 +1347,7 @@ function Tab:AddHeadToggle(text, default, callback, tooltip)
     local state = default and true or false
     local marks = state and addCheckMark(btn, 16) or {}
     for _, m in ipairs(marks) do m.Visible = state end
+    local hovered = false
     local lbl = New("TextLabel", {
         BackgroundTransparency = 1,
         TextColor3 = ImGui.Theme.Text,
@@ -1345,10 +1359,21 @@ function Tab:AddHeadToggle(text, default, callback, tooltip)
     }, self.head)
     applyFont(lbl, FONT_SIZE)
     local function refresh()
-        btn.BackgroundColor3 = state and ImGui.Theme.Accent or ImGui.Theme.CheckboxEmpty
+        if state then
+            btn.BackgroundColor3 = ImGui.Theme.Accent
+            btn.BackgroundTransparency = 0
+        elseif hovered then
+            btn.BackgroundColor3 = ImGui.Theme.Accent
+            btn.BackgroundTransparency = 0.75
+        else
+            btn.BackgroundColor3 = ImGui.Theme.CheckboxEmpty
+            btn.BackgroundTransparency = 0
+        end
         lbl.TextColor3 = state and ImGui.Theme.Text or ImGui.Theme.TextDisabled
         for _, m in ipairs(marks) do m.Visible = state end
     end
+    btn.MouseEnter:Connect(function() hovered = true refresh() end)
+    btn.MouseLeave:Connect(function() hovered = false refresh() end)
     btn.MouseButton1Click:Connect(function()
         state = not state
         refresh()
@@ -1537,24 +1562,27 @@ function Notification.Show(gui, title, text, duration)
 
     local entry = { frame = toast }
     Notification.active[index] = entry
+    local tx = gui.AbsoluteSize.X
     local function relayout()
         local y = 8
         for _, e in ipairs(Notification.active) do
             if e and e.frame then
-                e.frame.Position = UDim2.fromOffset(0, y)
+                e.frame.Position = UDim2.fromOffset(tx - 280 - 8, y)
                 e.frame.Visible = true
                 y = y + e.frame.AbsoluteSize.Y + 8
             end
         end
     end
     toast.Visible = true
-    local tx = gui.AbsoluteSize.X
-    toast.Position = UDim2.fromOffset(tx - 280 - 8, 8 + (index - 1) * 64)
-    tween(toast, { Position = UDim2.fromOffset(tx - 280 - 8, 8 + (index - 1) * 64) }, 0.15)
-    tween(toast, { Position = UDim2.fromOffset(tx - 280 + 60, 8 + (index - 1) * 64) }, 0.001)
+    toast.Position = UDim2.fromOffset(tx, 8 + (index - 1) * 64)
     tween(toast, { Position = UDim2.fromOffset(tx - 280 - 8, 8 + (index - 1) * 64) }, 0.25)
 
     task.delay(duration or 4, function()
+        for _, ch in ipairs(toast:GetChildren()) do
+            if ch.ClassName == "TextLabel" then
+                tween(ch, { TextTransparency = 1 }, 0.35)
+            end
+        end
         tween(toast, { BackgroundTransparency = 1 }, 0.35, function()
             toast:Destroy()
             for i, e in ipairs(Notification.active) do
@@ -1644,6 +1672,14 @@ function ImGui:CreateWindow(title, opts)
         BorderSizePixel = 0,
     }, win.menu)
 
+    -- 2px separator line under the branding, like the C++ framework
+    New("Frame", {
+        Size = UDim2.fromOffset(SIDEBAR_W, 2),
+        Position = UDim2.fromOffset(0, 55),
+        BackgroundColor3 = ImGui.Theme.Line,
+        BorderSizePixel = 0,
+    }, win.sidebar)
+
     -- branding (draggable): "Meme" in red + "Sense" in white, like MemeSense
     win.brandRow = New("Frame", {
         Size = UDim2.fromOffset(SIDEBAR_W, SIDEBAR_BTN_Y - 4),
@@ -1662,7 +1698,8 @@ function ImGui:CreateWindow(title, opts)
                 BackgroundTransparency = 1,
                 TextColor3 = p[2],
                 Text = p[1],
-                Size = UDim2.fromOffset(200, TITLE_SIZE),
+                AutomaticSize = Enum.AutomaticSize.X,
+                Size = UDim2.fromOffset(0, TITLE_SIZE),
                 Position = UDim2.fromOffset(x, BRAND_Y),
                 TextXAlignment = Enum.TextXAlignment.Left,
             }, win.brandRow)
@@ -1673,10 +1710,18 @@ function ImGui:CreateWindow(title, opts)
     end
     paintBrand()
 
+    win.brandConn = (RunService.RenderStepped or RunService.Heartbeat):Connect(function()
+        local x = BRAND_X
+        for _, lbl in ipairs(win.brandLabels) do
+            lbl.Position = UDim2.fromOffset(x, BRAND_Y)
+            x = x + lbl.TextBounds.X + 2
+        end
+    end)
+
     -- sidebar tabs scroll frame
     win.tabList = New("ScrollingFrame", {
-        Size = UDim2.new(1, 0, 1, -SIDEBAR_BTN_Y + 4),
-        Position = UDim2.fromOffset(0, SIDEBAR_BTN_Y - 4),
+        Size = UDim2.new(1, 0, 1, -SIDEBAR_BTN_Y),
+        Position = UDim2.fromOffset(0, SIDEBAR_BTN_Y),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         CanvasSize = UDim2.fromOffset(0, 0),
@@ -1688,7 +1733,7 @@ function ImGui:CreateWindow(title, opts)
     -- page head separator is drawn per-tab; body drag comes from the head area
     win.tabListY = 0
 
-    -- window dragging (branding row only, so widgets never fight the drag)
+    -- window dragging (anywhere on the menu except interactive controls)
     local dragOffset
     local function startDrag(input)
         dragOffset = Vector2.new(
@@ -1699,9 +1744,11 @@ function ImGui:CreateWindow(title, opts)
         if gpe or win.destroyed or not win.menu.Visible then return end
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             local t = input.Target
-            if t == win.brandRow or t == win.sidebar then
-                -- only when clicking the branding area itself
-                if t == win.brandRow then startDrag(input) end
+            if t and (t == win.menu or win.menu:IsAncestorOf(t)) then
+                local cn = t.ClassName
+                if cn ~= "TextButton" and cn ~= "TextBox" and cn ~= "ImageButton" then
+                    startDrag(input)
+                end
             end
         end
     end)
@@ -1833,6 +1880,7 @@ function Window:Destroy()
     self.destroyed = true
     if self.toggleConn then self.toggleConn:Disconnect() end
     if self.flowConn then self.flowConn:Disconnect() end
+    if self.brandConn then self.brandConn:Disconnect() end
     for i, w in ipairs(Windows) do
         if w == self then table.remove(Windows, i) break end
     end
@@ -1862,7 +1910,8 @@ function Window:SetTitle(branding)
             BackgroundTransparency = 1,
             TextColor3 = p[2],
             Text = p[1],
-            Size = UDim2.fromOffset(200, TITLE_SIZE),
+            AutomaticSize = Enum.AutomaticSize.X,
+            Size = UDim2.fromOffset(0, TITLE_SIZE),
             Position = UDim2.fromOffset(x, BRAND_Y),
             TextXAlignment = Enum.TextXAlignment.Left,
         }, self.brandRow)
